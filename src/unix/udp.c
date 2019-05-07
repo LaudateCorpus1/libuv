@@ -87,6 +87,11 @@ static void uv__udp_mmsg_init(void) {
 
 #endif
 
+#if defined(DISCORD_ENABLE_SENDMMSG)
+#define DISCORD_SENDMMSG_BATCHSIZE 64
+static void uv__udp_sendmmsg(uv_udp_t* handle);
+#endif // DISCORD_ENABLE_SENDMMSG
+
 void uv__udp_close(uv_udp_t* handle) {
   uv__io_close(handle->loop, &handle->io_watcher);
   uv__handle_stop(handle);
@@ -180,7 +185,14 @@ static void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int revents) {
     uv__udp_recvmsg(handle);
 
   if (revents & POLLOUT) {
-    uv__udp_sendmsg(handle);
+#if defined(DISCORD_ENABLE_SENDMMSG)
+    if (handle->use_sendmmsg) {
+      uv__udp_sendmmsg(handle);
+    } else
+#endif
+    {
+      uv__udp_sendmsg(handle);
+    }
     uv__udp_run_completed(handle);
   }
 }
@@ -466,6 +478,59 @@ static void uv__udp_sendmsg(uv_udp_t* handle) {
   }
 }
 
+#if defined(DISCORD_ENABLE_SENDMMSG)
+static void uv__udp_sendmmsg(uv_udp_t* handle) {
+  QUEUE* node;
+  struct msghdr* hdr;
+  struct mmsghdr hdrs[DISCORD_SENDMMSG_BATCHSIZE];
+  uv_udp_send_t* reqs[DISCORD_SENDMMSG_BATCHSIZE];
+  ssize_t send_cnt;
+  ssize_t send_res;
+  ssize_t i;
+
+  do {
+    send_cnt = 0;
+
+    QUEUE_FOREACH(node, &handle->write_queue) {
+      assert(node != NULL);
+
+      reqs[send_cnt] = QUEUE_DATA(node, uv_udp_send_t, queue);
+      assert(reqs[send_cnt] != NULL);
+
+      memset(&hdrs[send_cnt], 0, sizeof hdrs[send_cnt]);
+      hdr = &hdrs[send_cnt].msg_hdr;
+      hdr->msg_name = &reqs[send_cnt]->addr;
+      hdr->msg_namelen = (reqs[send_cnt]->addr.ss_family == AF_INET6 ?
+        sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
+      hdr->msg_iov = (struct iovec*) reqs[send_cnt]->bufs;
+      hdr->msg_iovlen = reqs[send_cnt]->nbufs;
+
+      if (++send_cnt == DISCORD_SENDMMSG_BATCHSIZE) {
+        break;
+      }
+    }
+
+    do {
+      send_res = sendmmsg(handle->io_watcher.fd, hdrs, send_cnt, 0);
+    } while (send_res == -1 && errno == EINTR);
+
+    if (send_res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))
+      break;
+
+    send_cnt = (send_res == -1) ? send_cnt : send_res;
+
+    for (i = 0; i < send_cnt; ++i) {
+      reqs[i]->status = (send_res == -1 ? -errno : (ssize_t)hdrs[i].msg_len);
+
+      QUEUE_REMOVE(&reqs[i]->queue);
+      QUEUE_INSERT_TAIL(&handle->write_completed_queue, &reqs[i]->queue);
+      uv__io_feed(handle->loop, &handle->io_watcher);
+    }
+  } while (!QUEUE_EMPTY(&handle->write_queue));
+}
+#endif // DISCORD_ENABLE_SENDMMSG
+
+
 /* On the BSDs, SO_REUSEPORT implies SO_REUSEADDR but with some additional
  * refinements for programs that use multicast.
  *
@@ -684,6 +749,7 @@ int uv__udp_send(uv_udp_send_t* req,
                  uv_udp_send_cb send_cb) {
   int err;
   int empty_queue;
+  int immediate;
 
   assert(nbufs > 0);
 
@@ -724,7 +790,12 @@ int uv__udp_send(uv_udp_send_t* req,
   QUEUE_INSERT_TAIL(&handle->write_queue, &req->queue);
   uv__handle_start(handle);
 
-  if (empty_queue && !(handle->flags & UV_HANDLE_UDP_PROCESSING)) {
+  immediate = empty_queue && !(handle->flags & UV_HANDLE_UDP_PROCESSING);
+#if defined(DISCORD_ENABLE_SENDMMSG)
+  immediate = immediate && !handle->use_sendmmsg;
+#endif
+  
+  if (immediate) {
     uv__udp_sendmsg(handle);
 
     /* `uv__udp_sendmsg` may not be able to do non-blocking write straight
@@ -997,6 +1068,7 @@ int uv__udp_init_ex(uv_loop_t* loop,
   handle->recv_cb = NULL;
   handle->send_queue_size = 0;
   handle->send_queue_count = 0;
+  handle->use_sendmmsg = flags & UV_UDP_DISCORD_USE_SENDMMSG;
   uv__io_init(&handle->io_watcher, uv__udp_io, fd);
   QUEUE_INIT(&handle->write_queue);
   QUEUE_INIT(&handle->write_completed_queue);
