@@ -93,14 +93,21 @@ static void uv__init_global_job_handle(void) {
       JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION |
       JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   uv_global_job_handle_ = CreateJobObjectW(&attr, NULL);
+  #else
+  uv_global_job_handle_ = NULL;
+  SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  #endif
   if (uv_global_job_handle_ == NULL)
     uv_fatal_error(GetLastError(), "CreateJobObjectW");
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   if (!SetInformationJobObject(uv_global_job_handle_,
                                JobObjectExtendedLimitInformation,
                                &info,
                                sizeof info))
+  #endif
     uv_fatal_error(GetLastError(), "SetInformationJobObject");
 }
 
@@ -635,12 +642,19 @@ int env_strncmp(const wchar_t* a, int na, const wchar_t* b) {
   A = alloca((na+1) * sizeof(wchar_t));
   B = alloca((nb+1) * sizeof(wchar_t));
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   r = LCMapStringW(LOCALE_INVARIANT, LCMAP_UPPERCASE, a, na, A, na);
   assert(r==na);
   A[na] = L'\0';
   r = LCMapStringW(LOCALE_INVARIANT, LCMAP_UPPERCASE, b, nb, B, nb);
   assert(r==nb);
   B[nb] = L'\0';
+  #else
+  wcscpy_s(A, na, a);
+  A[na] = L'\0';
+  wcscpy_s(B, nb, b);
+  B[nb] = L'\0';
+  #endif
 
   while (1) {
     wchar_t AA = *A++;
@@ -878,7 +892,9 @@ void uv_process_proc_exit(uv_loop_t* loop, uv_process_t* handle) {
 
   /* Unregister from process notification. */
   if (handle->wait_handle != INVALID_HANDLE_VALUE) {
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     UnregisterWait(handle->wait_handle);
+    #endif
     handle->wait_handle = INVALID_HANDLE_VALUE;
   }
 
@@ -904,9 +920,14 @@ void uv_process_close(uv_loop_t* loop, uv_process_t* handle) {
   uv__handle_closing(handle);
 
   if (handle->wait_handle != INVALID_HANDLE_VALUE) {
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     /* This blocks until either the wait was cancelled, or the callback has
      * completed. */
     BOOL r = UnregisterWaitEx(handle->wait_handle, INVALID_HANDLE_VALUE);
+    #else
+    BOOL r = FALSE;
+    SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+    #endif
     if (!r) {
       /* This should never happen, and if it happens, we can't recover... */
       uv_fatal_error(GetLastError(), "UnregisterWaitEx");
@@ -1055,6 +1076,12 @@ int uv_spawn(uv_loop_t* loop,
   startup.lpReserved = NULL;
   startup.lpDesktop = NULL;
   startup.lpTitle = NULL;
+  #ifndef STARTF_USESTDHANDLES
+  #define STARTF_USESTDHANDLES 0x00000100
+  #endif
+  #ifndef STARTF_USESHOWWINDOW
+  #define STARTF_USESHOWWINDOW 0x00000001
+  #endif
   startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
 
   startup.cbReserved2 = uv__stdio_size(process->child_stdio_buffer);
@@ -1123,6 +1150,7 @@ int uv_spawn(uv_loop_t* loop,
   if (!(options->flags & UV_PROCESS_DETACHED)) {
     uv_once(&uv_global_job_handle_init_guard_, uv__init_global_job_handle);
 
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     if (!AssignProcessToJobObject(uv_global_job_handle_, info.hProcess)) {
       /* AssignProcessToJobObject might fail if this process is under job
        * control and the job doesn't have the
@@ -1135,6 +1163,10 @@ int uv_spawn(uv_loop_t* loop,
        * to spawn processes at all.
        */
       DWORD err = GetLastError();
+    #else
+    {
+		  DWORD err = ERROR_NOT_SUPPORTED_IN_APPCONTAINER;
+    #endif
       if (err != ERROR_ACCESS_DENIED)
         uv_fatal_error(err, "AssignProcessToJobObject");
     }
@@ -1151,10 +1183,15 @@ int uv_spawn(uv_loop_t* loop,
     }
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   /* Setup notifications for when the child process exits. */
   result = RegisterWaitForSingleObject(&process->wait_handle,
       process->process_handle, exit_wait_callback, (void*)process, INFINITE,
       WT_EXECUTEINWAITTHREAD | WT_EXECUTEONLYONCE);
+  #else
+  result = 0;
+  SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  #endif
   if (!result) {
     uv_fatal_error(GetLastError(), "RegisterWaitForSingleObject");
   }

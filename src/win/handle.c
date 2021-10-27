@@ -81,7 +81,9 @@ void uv_close(uv_handle_t* handle, uv_close_cb cb) {
       return;
 
     case UV_NAMED_PIPE:
+      #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
       uv_pipe_close(loop, (uv_pipe_t*) handle);
+      #endif
       return;
 
     case UV_TTY:

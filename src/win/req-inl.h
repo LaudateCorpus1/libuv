@@ -46,8 +46,10 @@
 #define REQ_SUCCESS(req)                                                \
   (NT_SUCCESS(GET_REQ_STATUS((req))))
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 #define GET_REQ_ERROR(req)                                              \
   (pRtlNtStatusToDosError(GET_REQ_STATUS((req))))
+#endif
 
 #define GET_REQ_SOCK_ERROR(req)                                         \
   (uv_ntstatus_to_winsock_error(GET_REQ_STATUS((req))))
@@ -110,6 +112,13 @@ INLINE static void uv_insert_pending_req(uv_loop_t* loop, uv_req_t* req) {
   }
 }
 
+#if !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+INLINE static void uv_process_pipe_read_req(uv_loop_t* loop, uv_pipe_t* handle, uv_req_t* req){}
+INLINE static void uv_process_pipe_write_req(uv_loop_t* loop, uv_pipe_t* handle, uv_write_t* req){}
+INLINE static void uv_process_pipe_accept_req(uv_loop_t* loop, uv_pipe_t* handle, uv_req_t* raw_req){}
+INLINE static void uv_process_pipe_connect_req(uv_loop_t* loop, uv_pipe_t* handle, uv_connect_t* req){}
+INLINE static void uv_process_pipe_shutdown_req(uv_loop_t* loop, uv_pipe_t* handle, uv_shutdown_t* req){}
+#endif
 
 #define DELEGATE_STREAM_REQ(loop, req, method, handle_at)                     \
   do {                                                                        \
@@ -174,10 +183,12 @@ INLINE static int uv_process_reqs(uv_loop_t* loop) {
       case UV_SHUTDOWN:
         /* Tcp shutdown requests don't come here. */
         assert(((uv_shutdown_t*) req)->handle->type == UV_NAMED_PIPE);
+        #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
         uv_process_pipe_shutdown_req(
             loop,
             (uv_pipe_t*) ((uv_shutdown_t*) req)->handle,
             (uv_shutdown_t*) req);
+        #endif
         break;
 
       case UV_UDP_RECV:

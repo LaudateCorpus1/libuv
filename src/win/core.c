@@ -175,6 +175,15 @@ void uv__wake_all_loops(void) {
 
 static void uv_init(void) {
   /* Tell Windows that we will handle critical errors. */
+  #ifndef SEM_FAILCRITICALERRORS
+  #define SEM_FAILCRITICALERRORS 0x0001
+  #endif
+  #ifndef SEM_NOGPFAULTERRORBOX
+  #define SEM_NOGPFAULTERRORBOX 0x0002
+  #endif
+  #ifndef SEM_NOOPENFILEERRORBOX
+  #define SEM_NOOPENFILEERRORBOX 0x8000
+  #endif
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX |
                SEM_NOOPENFILEERRORBOX);
 

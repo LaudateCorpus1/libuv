@@ -95,9 +95,11 @@ static int uv_tcp_set_socket(uv_loop_t* loop,
     return WSAGetLastError();
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   /* Make the socket non-inheritable */
   if (!SetHandleInformation((HANDLE) socket, HANDLE_FLAG_INHERIT, 0))
     return GetLastError();
+  #endif
 
   /* Associate it with the I/O completion port. Use uv_handle_t pointer as
    * completion key. */
@@ -248,7 +250,9 @@ void uv_tcp_endgame(uv_loop_t* loop, uv_tcp_t* handle) {
         for (i = 0; i < uv_simultaneous_server_accepts; i++) {
           req = &handle->tcp.serv.accept_reqs[i];
           if (req->wait_handle != INVALID_HANDLE_VALUE) {
+            #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
             UnregisterWait(req->wait_handle);
+            #endif
             req->wait_handle = INVALID_HANDLE_VALUE;
           }
           if (req->event_handle != NULL) {
@@ -265,7 +269,9 @@ void uv_tcp_endgame(uv_loop_t* loop, uv_tcp_t* handle) {
     if (handle->flags & UV_HANDLE_CONNECTION &&
         handle->flags & UV_HANDLE_EMULATE_IOCP) {
       if (handle->read_req.wait_handle != INVALID_HANDLE_VALUE) {
+        #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
         UnregisterWait(handle->read_req.wait_handle);
+        #endif
         handle->read_req.wait_handle = INVALID_HANDLE_VALUE;
       }
       if (handle->read_req.event_handle != NULL) {
@@ -416,6 +422,7 @@ static void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
     return;
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   /* Make the socket non-inheritable */
   if (!SetHandleInformation((HANDLE) accept_socket, HANDLE_FLAG_INHERIT, 0)) {
     SET_REQ_ERROR(req, GetLastError());
@@ -424,6 +431,7 @@ static void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
     closesocket(accept_socket);
     return;
   }
+  #endif
 
   /* Prepare the overlapped structure. */
   memset(&(req->u.io.overlapped), 0, sizeof(req->u.io.overlapped));
@@ -452,9 +460,14 @@ static void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
     handle->reqs_pending++;
     if (handle->flags & UV_HANDLE_EMULATE_IOCP &&
         req->wait_handle == INVALID_HANDLE_VALUE &&
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
         !RegisterWaitForSingleObject(&req->wait_handle,
           req->event_handle, post_completion, (void*) req,
           INFINITE, WT_EXECUTEINWAITTHREAD)) {
+    #else
+        1){
+      SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+    #endif
       SET_REQ_ERROR(req, GetLastError());
       uv_insert_pending_req(loop, (uv_req_t*)req);
     }
@@ -534,9 +547,14 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
     /* The req will be processed with IOCP. */
     if (handle->flags & UV_HANDLE_EMULATE_IOCP &&
         req->wait_handle == INVALID_HANDLE_VALUE &&
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
         !RegisterWaitForSingleObject(&req->wait_handle,
           req->event_handle, post_completion, (void*) req,
           INFINITE, WT_EXECUTEINWAITTHREAD)) {
+    #else
+        1){
+      SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+    #endif
       SET_REQ_ERROR(req, GetLastError());
       uv_insert_pending_req(loop, (uv_req_t*)req);
     }
@@ -770,6 +788,7 @@ static int uv__is_loopback(const struct sockaddr_storage* storage) {
 
 // Check if Windows version is 10.0.16299 or later
 static int uv__is_fast_loopback_fail_supported() {
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   OSVERSIONINFOW os_info;
   if (!pRtlGetVersion)
     return 0;
@@ -781,6 +800,9 @@ static int uv__is_fast_loopback_fail_supported() {
   if (os_info.dwMinorVersion > 0)
     return 1;
   return os_info.dwBuildNumber >= 16299;
+  #else
+  return 1;
+  #endif
 }
 
 static int uv_tcp_try_connect(uv_connect_t* req,
@@ -954,9 +976,14 @@ int uv_tcp_write(uv_loop_t* loop,
     REGISTER_HANDLE_REQ(loop, handle, req);
     handle->write_queue_size += req->u.io.queued_bytes;
     if (handle->flags & UV_HANDLE_EMULATE_IOCP &&
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
         !RegisterWaitForSingleObject(&req->wait_handle,
           req->event_handle, post_write_completion, (void*) req,
           INFINITE, WT_EXECUTEINWAITTHREAD | WT_EXECUTEONLYONCE)) {
+    #else
+        1){
+      SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+    #endif
       SET_REQ_ERROR(req, GetLastError());
       uv_insert_pending_req(loop, (uv_req_t*)req);
     }
@@ -1139,7 +1166,9 @@ void uv_process_tcp_write_req(uv_loop_t* loop, uv_tcp_t* handle,
 
   if (handle->flags & UV_HANDLE_EMULATE_IOCP) {
     if (req->wait_handle != INVALID_HANDLE_VALUE) {
+      #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
       UnregisterWait(req->wait_handle);
+      #endif
       req->wait_handle = INVALID_HANDLE_VALUE;
     }
     if (req->event_handle != NULL) {
@@ -1474,6 +1503,9 @@ void uv_tcp_close(uv_loop_t* loop, uv_tcp_t* tcp) {
        * operations. However this is not cool because we might inadvertently
        * close a socket that just accepted a new connection, which will cause
        * the connection to be aborted. */
+      #ifndef HasOverlappedIoCompleted
+      #define HasOverlappedIoCompleted(lpOverlapped) (((DWORD)(lpOverlapped)->Internal) != STATUS_PENDING)
+      #endif
       unsigned int i;
       for (i = 0; i < uv_simultaneous_server_accepts; i++) {
         uv_tcp_accept_t* req = &tcp->tcp.serv.accept_reqs[i];
@@ -1618,8 +1650,10 @@ int uv_socketpair(int type, int protocol, uv_os_sock_t fds[2], int flags0, int f
                       WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
   if (server == INVALID_SOCKET)
     goto wsaerror;
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   if (!SetHandleInformation((HANDLE) server, HANDLE_FLAG_INHERIT, 0))
     goto error;
+  #endif
   name.sin_family = AF_INET;
   name.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   name.sin_port = 0;
@@ -1633,15 +1667,19 @@ int uv_socketpair(int type, int protocol, uv_os_sock_t fds[2], int flags0, int f
   client0 = WSASocketW(AF_INET, type, protocol, NULL, 0, client0_flags);
   if (client0 == INVALID_SOCKET)
     goto wsaerror;
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   if (!SetHandleInformation((HANDLE) client0, HANDLE_FLAG_INHERIT, 0))
     goto error;
+  #endif
   if (connect(client0, (SOCKADDR*) &name, sizeof(name)) != 0)
     goto wsaerror;
   client1 = WSASocketW(AF_INET, type, protocol, NULL, 0, client1_flags);
   if (client1 == INVALID_SOCKET)
     goto wsaerror;
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   if (!SetHandleInformation((HANDLE) client1, HANDLE_FLAG_INHERIT, 0))
     goto error;
+  #endif
   if (!uv_get_acceptex_function(server, &func_acceptex)) {
     err = WSAEAFNOSUPPORT;
     goto cleanup;

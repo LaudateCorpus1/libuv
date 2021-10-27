@@ -35,9 +35,11 @@ int uv_listen(uv_stream_t* stream, int backlog, uv_connection_cb cb) {
     case UV_TCP:
       err = uv_tcp_listen((uv_tcp_t*)stream, backlog, cb);
       break;
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     case UV_NAMED_PIPE:
       err = uv_pipe_listen((uv_pipe_t*)stream, backlog, cb);
       break;
+    #endif
     default:
       assert(0);
   }
@@ -54,9 +56,11 @@ int uv_accept(uv_stream_t* server, uv_stream_t* client) {
     case UV_TCP:
       err = uv_tcp_accept((uv_tcp_t*)server, (uv_tcp_t*)client);
       break;
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     case UV_NAMED_PIPE:
       err = uv_pipe_accept((uv_pipe_t*)server, client);
       break;
+    #endif
     default:
       assert(0);
   }
@@ -75,9 +79,11 @@ int uv__read_start(uv_stream_t* handle,
     case UV_TCP:
       err = uv_tcp_read_start((uv_tcp_t*)handle, alloc_cb, read_cb);
       break;
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     case UV_NAMED_PIPE:
       err = uv_pipe_read_start((uv_pipe_t*)handle, alloc_cb, read_cb);
       break;
+    #endif
     case UV_TTY:
       err = uv_tty_read_start((uv_tty_t*) handle, alloc_cb, read_cb);
       break;
@@ -98,8 +104,10 @@ int uv_read_stop(uv_stream_t* handle) {
   err = 0;
   if (handle->type == UV_TTY) {
     err = uv_tty_read_stop((uv_tty_t*) handle);
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   } else if (handle->type == UV_NAMED_PIPE) {
     uv__pipe_read_stop((uv_pipe_t*) handle);
+  #endif
   } else {
     handle->flags &= ~UV_HANDLE_READING;
     DECREASE_ACTIVE_COUNT(handle->loop, handle);
@@ -126,10 +134,12 @@ int uv_write(uv_write_t* req,
     case UV_TCP:
       err = uv_tcp_write(loop, req, (uv_tcp_t*) handle, bufs, nbufs, cb);
       break;
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     case UV_NAMED_PIPE:
       err = uv__pipe_write(
           loop, req, (uv_pipe_t*) handle, bufs, nbufs, NULL, cb);
       break;
+    #endif
     case UV_TTY:
       err = uv_tty_write(loop, req, (uv_tty_t*) handle, bufs, nbufs, cb);
       break;
@@ -160,8 +170,12 @@ int uv_write2(uv_write_t* req,
     return UV_EPIPE;
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   err = uv__pipe_write(
       loop, req, (uv_pipe_t*) handle, bufs, nbufs, send_handle, cb);
+  #else
+  err = ERROR_NOT_SUPPORTED_IN_APPCONTAINER;
+  #endif
   return uv_translate_sys_error(err);
 }
 

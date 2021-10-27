@@ -72,6 +72,7 @@
  * does a perfect job.
  */
 void uv_disable_stdio_inheritance(void) {
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   HANDLE handle;
   STARTUPINFOW si;
 
@@ -92,6 +93,7 @@ void uv_disable_stdio_inheritance(void) {
   GetStartupInfoW(&si);
   if (uv__stdio_verify(si.lpReserved2, si.cbReserved2))
     uv__stdio_noinherit(si.lpReserved2);
+  #endif
 }
 
 
@@ -240,10 +242,14 @@ int uv__stdio_create(uv_loop_t* loop,
         assert(!(fdopt.data.stream->flags & UV_HANDLE_CONNECTION));
         assert(!(fdopt.data.stream->flags & UV_HANDLE_PIPESERVER));
 
+        #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
         err = uv__create_stdio_pipe_pair(loop,
                                          parent_pipe,
                                          &child_pipe,
                                          fdopt.flags);
+        #else
+        err = ERROR_NOT_SUPPORTED_IN_APPCONTAINER;
+        #endif
         if (err)
           goto error;
 
@@ -370,6 +376,7 @@ void uv__stdio_destroy(BYTE* buffer) {
 
 
 void uv__stdio_noinherit(BYTE* buffer) {
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   int i, count;
 
   count = CHILD_STDIO_COUNT(buffer);
@@ -379,6 +386,7 @@ void uv__stdio_noinherit(BYTE* buffer) {
       SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
     }
   }
+  #endif
 }
 
 

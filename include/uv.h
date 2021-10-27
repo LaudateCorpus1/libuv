@@ -479,7 +479,9 @@ UV_EXTERN int uv_fileno(const uv_handle_t* handle, uv_os_fd_t* fd);
 
 UV_EXTERN uv_buf_t uv_buf_init(char* base, unsigned int len);
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 UV_EXTERN int uv_pipe(uv_file fds[2], int read_flags, int write_flags);
+#endif
 UV_EXTERN int uv_socketpair(int type,
                             int protocol,
                             uv_os_sock_t socket_vector[2],
@@ -795,6 +797,7 @@ struct uv_pipe_s {
   UV_PIPE_PRIVATE_FIELDS
 };
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 UV_EXTERN int uv_pipe_init(uv_loop_t*, uv_pipe_t* handle, int ipc);
 UV_EXTERN int uv_pipe_open(uv_pipe_t*, uv_file file);
 UV_EXTERN int uv_pipe_bind(uv_pipe_t* handle, const char* name);
@@ -812,6 +815,7 @@ UV_EXTERN void uv_pipe_pending_instances(uv_pipe_t* handle, int count);
 UV_EXTERN int uv_pipe_pending_count(uv_pipe_t* handle);
 UV_EXTERN uv_handle_type uv_pipe_pending_type(uv_pipe_t* handle);
 UV_EXTERN int uv_pipe_chmod(uv_pipe_t* handle, int flags);
+#endif
 
 
 struct uv_poll_s {

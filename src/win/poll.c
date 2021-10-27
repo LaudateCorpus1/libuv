@@ -214,9 +214,11 @@ static SOCKET uv__fast_poll_create_peer_socket(HANDLE iocp,
     return INVALID_SOCKET;
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   if (!SetHandleInformation((HANDLE) sock, HANDLE_FLAG_INHERIT, 0)) {
     goto error;
   };
+  #endif
 
   if (CreateIoCompletionPort((HANDLE) sock,
                              iocp,
@@ -352,9 +354,14 @@ static void uv__slow_poll_submit_poll_req(uv_loop_t* loop, uv_poll_t* handle) {
     return;
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   if (!QueueUserWorkItem(uv__slow_poll_thread_proc,
                          (void*) req,
                          WT_EXECUTELONGFUNCTION)) {
+  #else
+  {
+	SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  #endif
     /* Make this req pending, reporting an error. */
     SET_REQ_ERROR(req, GetLastError());
     uv_insert_pending_req(loop, req);
@@ -382,9 +389,15 @@ static void uv__slow_poll_process_poll_req(uv_loop_t* loop, uv_poll_t* handle,
   if (!REQ_SUCCESS(req)) {
     /* Error. */
     if (handle->events != 0) {
+      #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
       err = GET_REQ_ERROR(req);
+      #endif
       handle->events = 0; /* Stop the watcher */
+      #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
       handle->poll_cb(handle, uv_translate_sys_error(err), 0);
+      #else
+      handle->poll_cb(handle, UV_UNKNOWN, 0);
+      #endif
     }
   } else {
     /* Got some events. */
