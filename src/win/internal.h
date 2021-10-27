@@ -112,6 +112,7 @@ void uv_udp_close(uv_loop_t* loop, uv_udp_t* handle);
 void uv_udp_endgame(uv_loop_t* loop, uv_udp_t* handle);
 
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 /*
  * Pipes
  */
@@ -145,6 +146,7 @@ void uv_process_pipe_shutdown_req(uv_loop_t* loop, uv_pipe_t* handle,
 void uv_pipe_close(uv_loop_t* loop, uv_pipe_t* handle);
 void uv_pipe_cleanup(uv_loop_t* loop, uv_pipe_t* handle);
 void uv_pipe_endgame(uv_loop_t* loop, uv_pipe_t* handle);
+#endif
 
 
 /*
@@ -340,5 +342,16 @@ void uv__wake_all_loops(void);
  * Init system wake-up detection
  */
 void uv__init_detect_system_wakeup(void);
+
+#if !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+HANDLE CreateFileW(
+    LPCWSTR               lpFileName,
+    DWORD                 dwDesiredAccess,
+    DWORD                 dwShareMode,
+    LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+    DWORD                 dwCreationDisposition,
+    DWORD                 dwFlagsAndAttributes,
+    HANDLE                hTemplateFile);
+#endif
 
 #endif /* UV_WIN_INTERNAL_H_ */

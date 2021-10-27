@@ -91,8 +91,10 @@ void uv_winsock_init(void) {
     abort();
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   /* Skip initialization in safe mode without network support */
   if (1 == GetSystemMetrics(SM_CLEANBOOT)) return;
+  #endif
 
   /* Initialize winsock */
   errorno = WSAStartup(MAKEWORD(2, 2), &wsa_data);
@@ -303,6 +305,7 @@ int WSAAPI uv_wsarecv_workaround(SOCKET socket, WSABUF* buffers,
   iosb->Status = STATUS_PENDING;
   iosb->Pointer = 0;
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   status = pNtDeviceIoControlFile((HANDLE) socket,
                                   overlapped->hEvent,
                                   NULL,
@@ -313,6 +316,9 @@ int WSAAPI uv_wsarecv_workaround(SOCKET socket, WSABUF* buffers,
                                   sizeof(info),
                                   NULL,
                                   0);
+  #else
+  status = STATUS_NOT_SUPPORTED;
+  #endif
 
   *flags = 0;
   *bytes = (DWORD) iosb->Information;
@@ -401,6 +407,7 @@ int WSAAPI uv_wsarecvfrom_workaround(SOCKET socket, WSABUF* buffers,
   iosb->Status = STATUS_PENDING;
   iosb->Pointer = 0;
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   status = pNtDeviceIoControlFile((HANDLE) socket,
                                   overlapped->hEvent,
                                   NULL,
@@ -411,6 +418,9 @@ int WSAAPI uv_wsarecvfrom_workaround(SOCKET socket, WSABUF* buffers,
                                   sizeof(info),
                                   NULL,
                                   0);
+  #else
+  status = STATUS_NOT_SUPPORTED;
+  #endif
 
   *flags = 0;
   *bytes = (DWORD) iosb->Information;
@@ -491,6 +501,7 @@ int WSAAPI uv_msafd_poll(SOCKET socket, AFD_POLL_INFO* info_in,
   }
 
   iosb_ptr->Status = STATUS_PENDING;
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   status = pNtDeviceIoControlFile((HANDLE) socket,
                                   event,
                                   NULL,
@@ -501,6 +512,9 @@ int WSAAPI uv_msafd_poll(SOCKET socket, AFD_POLL_INFO* info_in,
                                   sizeof *info_in,
                                   info_out,
                                   sizeof *info_out);
+  #else
+  status = STATUS_NOT_SUPPORTED;
+  #endif
 
   if (overlapped == NULL) {
     /* If this is a blocking operation, wait for the event to become signaled,

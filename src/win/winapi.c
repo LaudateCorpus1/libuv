@@ -25,6 +25,7 @@
 #include "internal.h"
 
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 /* Ntdll function pointers */
 sRtlGetVersion pRtlGetVersion;
 sRtlNtStatusToDosError pRtlNtStatusToDosError;
@@ -36,17 +37,21 @@ sNtQueryDirectoryFile pNtQueryDirectoryFile;
 sNtQuerySystemInformation pNtQuerySystemInformation;
 sNtQueryInformationProcess pNtQueryInformationProcess;
 
-/* Kernel32 function pointers */
-sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
-
 /* Powrprof.dll function pointer */
 sPowerRegisterSuspendResumeNotification pPowerRegisterSuspendResumeNotification;
 
 /* User32.dll function pointer */
 sSetWinEventHook pSetWinEventHook;
+#endif
+
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP|WINAPI_PARTITION_APP)
+/* Kernel32 function pointers */
+sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
+#endif
 
 
 void uv_winapi_init(void) {
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   HMODULE ntdll_module;
   HMODULE powrprof_module;
   HMODULE user32_module;
@@ -134,4 +139,10 @@ void uv_winapi_init(void) {
     pSetWinEventHook = (sSetWinEventHook)
       GetProcAddress(user32_module, "SetWinEventHook");
   }
+
+  #elif WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP)
+
+  pGetQueuedCompletionStatusEx = GetQueuedCompletionStatusEx;
+
+  #endif
 }

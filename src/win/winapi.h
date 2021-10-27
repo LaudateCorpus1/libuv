@@ -4739,6 +4739,7 @@ typedef struct _TCP_INITIAL_RTO_PARAMETERS {
 # define  SIO_TCP_INITIAL_RTO _WSAIOW(IOC_VENDOR,17)
 #endif
 
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 /* Ntdll function pointers */
 extern sRtlGetVersion pRtlGetVersion;
 extern sRtlNtStatusToDosError pRtlNtStatusToDosError;
@@ -4750,13 +4751,16 @@ extern sNtQueryDirectoryFile pNtQueryDirectoryFile;
 extern sNtQuerySystemInformation pNtQuerySystemInformation;
 extern sNtQueryInformationProcess pNtQueryInformationProcess;
 
-/* Kernel32 function pointers */
-extern sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
-
 /* Powrprof.dll function pointer */
 extern sPowerRegisterSuspendResumeNotification pPowerRegisterSuspendResumeNotification;
 
 /* User32.dll function pointer */
 extern sSetWinEventHook pSetWinEventHook;
+#endif
+
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP|WINAPI_PARTITION_APP)
+/* Kernel32 function pointers */
+extern sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
+#endif
 
 #endif /* UV_WIN_WINAPI_H_ */

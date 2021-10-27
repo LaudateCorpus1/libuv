@@ -733,6 +733,7 @@ LONG fs__filemap_ex_filter(LONG excode, PEXCEPTION_POINTERS pep,
   }
 
   assert(perror != NULL);
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   if (pep != NULL && pep->ExceptionRecord != NULL &&
       pep->ExceptionRecord->NumberParameters >= 3) {
     NTSTATUS status = (NTSTATUS)pep->ExceptionRecord->ExceptionInformation[3];
@@ -741,6 +742,7 @@ LONG fs__filemap_ex_filter(LONG excode, PEXCEPTION_POINTERS pep,
       return EXCEPTION_EXECUTE_HANDLER;
     }
   }
+  #endif
   *perror = UV_UNKNOWN;
   return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -1177,6 +1179,7 @@ void fs__unlink(uv_fs_t* req) {
   }
 
   if (info.dwFileAttributes & FILE_ATTRIBUTE_READONLY) {
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     /* Remove read-only attribute */
     FILE_BASIC_INFORMATION basic = { 0 };
 
@@ -1193,8 +1196,14 @@ void fs__unlink(uv_fs_t* req) {
       CloseHandle(handle);
       return;
     }
+    #else
+    SET_REQ_WIN32_ERROR(req, ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+    CloseHandle(handle);
+    return;
+    #endif
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   /* Try to set the delete flag. */
   disposition.DeleteFile = TRUE;
   status = pNtSetInformationFile(handle,
@@ -1207,6 +1216,9 @@ void fs__unlink(uv_fs_t* req) {
   } else {
     SET_REQ_WIN32_ERROR(req, pRtlNtStatusToDosError(status));
   }
+  #else
+  SET_REQ_WIN32_ERROR(req, ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  #endif
 
   CloseHandle(handle);
 }
@@ -1350,6 +1362,7 @@ void fs__mkstemp(uv_fs_t* req) {
 
 
 void fs__scandir(uv_fs_t* req) {
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   static const size_t dirents_initial_size = 32;
 
   HANDLE dir_handle = INVALID_HANDLE_VALUE;
@@ -1559,6 +1572,9 @@ cleanup:
     uv__free(dirents[--dirents_used]);
   if (dirents != NULL)
     uv__free(dirents);
+  #else
+  SET_REQ_WIN32_ERROR(req, ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  #endif
 }
 
 void fs__opendir(uv_fs_t* req) {
@@ -1695,6 +1711,7 @@ void fs__closedir(uv_fs_t* req) {
 
 INLINE static int fs__stat_handle(HANDLE handle, uv_stat_t* statbuf,
     int do_lstat) {
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   FILE_ALL_INFORMATION file_info;
   FILE_FS_VOLUME_INFORMATION volume_info;
   NTSTATUS nt_status;
@@ -1835,6 +1852,10 @@ INLINE static int fs__stat_handle(HANDLE handle, uv_stat_t* statbuf,
   statbuf->st_gen = 0;
 
   return 0;
+  #else
+  SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  return -1;
+  #endif
 }
 
 
@@ -1998,6 +2019,7 @@ static void fs__ftruncate(uv_fs_t* req) {
 
   eof_info.EndOfFile.QuadPart = req->fs.info.offset;
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   status = pNtSetInformationFile(handle,
                                  &io_status,
                                  &eof_info,
@@ -2008,6 +2030,12 @@ static void fs__ftruncate(uv_fs_t* req) {
     SET_REQ_RESULT(req, 0);
   } else {
     SET_REQ_WIN32_ERROR(req, pRtlNtStatusToDosError(status));
+  #else
+  if(SetFilePointerEx(handle, eof_info.EndOfFile, NULL, FILE_BEGIN) && SetEndOfFile(handle)){
+    SET_REQ_RESULT(req, 0);
+  } else {
+    SET_REQ_WIN32_ERROR(req, GetLastError());
+  #endif
 
     if (fd_info.flags) {
       CloseHandle(handle);
@@ -2184,6 +2212,7 @@ static void fs__fchmod(uv_fs_t* req) {
     return;
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   nt_status = pNtQueryInformationFile(handle,
                                       &io_status,
                                       &file_info,
@@ -2249,6 +2278,9 @@ static void fs__fchmod(uv_fs_t* req) {
   }
 
   SET_REQ_SUCCESS(req);
+  #else
+  SET_REQ_WIN32_ERROR(req, ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  #endif
 fchmod_cleanup:
   CloseHandle(handle);
 }
@@ -2553,10 +2585,14 @@ static void fs__symlink(uv_fs_t* req) {
   else
     flags = uv__file_symlink_usermode_flag;
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   if (CreateSymbolicLinkW(new_pathw, pathw, flags)) {
     SET_REQ_RESULT(req, 0);
     return;
   }
+  #else
+  SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  #endif
 
   /* Something went wrong. We will test if it is because of user-mode
    * symlinks.

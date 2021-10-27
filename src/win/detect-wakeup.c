@@ -42,6 +42,7 @@ static ULONG CALLBACK uv__system_resume_callback(PVOID Context,
 }
 
 static void uv__register_system_resume_callback(void) {
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   _DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS recipient;
   _HPOWERNOTIFY registration_handle;
 
@@ -53,4 +54,5 @@ static void uv__register_system_resume_callback(void) {
   (*pPowerRegisterSuspendResumeNotification)(DEVICE_NOTIFY_CALLBACK,
                                              &recipient,
                                              &registration_handle);
+  #endif
 }

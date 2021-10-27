@@ -405,6 +405,7 @@ int uv_if_indextoname(unsigned int ifindex, char* buffer, size_t* size) {
   if (buffer == NULL || size == NULL || *size == 0)
     return UV_EINVAL;
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   r = ConvertInterfaceIndexToLuid(ifindex, &luid);
 
   if (r != 0)
@@ -434,6 +435,10 @@ int uv_if_indextoname(unsigned int ifindex, char* buffer, size_t* size) {
                                 *size,
                                 NULL,
                                 NULL);
+  #else
+  bufsize = 0;
+  SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  #endif
 
   if (bufsize == 0)
     return uv_translate_sys_error(GetLastError());

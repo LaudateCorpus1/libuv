@@ -74,10 +74,12 @@ static int uv_udp_set_socket(uv_loop_t* loop, uv_udp_t* handle, SOCKET socket,
     return WSAGetLastError();
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   /* Make the socket non-inheritable */
   if (!SetHandleInformation((HANDLE)socket, HANDLE_FLAG_INHERIT, 0)) {
     return GetLastError();
   }
+  #endif
 
   /* Associate it with the I/O completion port. Use uv_handle_t pointer as
    * completion key. */
@@ -100,6 +102,10 @@ static int uv_udp_set_socket(uv_loop_t* loop, uv_udp_t* handle, SOCKET socket,
     return GetLastError();
   }
 
+/* the workarounds won't work (as written) in UWP due to
+   `NtDeviceIoControlFile` but it's possible we can rework them with
+   `DeviceIoControl`...? for now, things work without the workarounds... */
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   if (info.ProtocolChain.ChainLen == 1) {
     if (SetFileCompletionNotificationModes(
             (HANDLE) socket,
@@ -112,6 +118,7 @@ static int uv_udp_set_socket(uv_loop_t* loop, uv_udp_t* handle, SOCKET socket,
       return GetLastError();
     }
   }
+#endif
 
   handle->socket = socket;
 

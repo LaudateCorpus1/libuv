@@ -175,9 +175,11 @@ void uv_console_init(void) {
                                        0);
   if (uv__tty_console_handle != INVALID_HANDLE_VALUE) {
     CONSOLE_SCREEN_BUFFER_INFO sb_info;
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     QueueUserWorkItem(uv__tty_console_resize_message_loop_thread,
                       NULL,
                       WT_EXECUTELONGFUNCTION);
+    #endif
     uv_mutex_init(&uv__tty_console_resize_mutex);
     if (GetConsoleScreenBufferInfo(uv__tty_console_handle, &sb_info)) {
       uv__tty_console_width = sb_info.dwSize.X;
@@ -466,12 +468,17 @@ static void uv_tty_queue_read_raw(uv_loop_t* loop, uv_tty_t* handle) {
   req = &handle->read_req;
   memset(&req->u.io.overlapped, 0, sizeof(req->u.io.overlapped));
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   r = RegisterWaitForSingleObject(&handle->tty.rd.read_raw_wait,
                                   handle->handle,
                                   uv_tty_post_raw_read,
                                   (void*) req,
                                   INFINITE,
                                   WT_EXECUTEINWAITTHREAD | WT_EXECUTEONLYONCE);
+  #else
+  r = FALSE;
+  SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  #endif
   if (!r) {
     handle->tty.rd.read_raw_wait = NULL;
     SET_REQ_ERROR(req, GetLastError());
@@ -551,7 +558,7 @@ static DWORD CALLBACK uv_tty_line_read_thread(void* data) {
        screen state to undo the visual effect of the VK_RETURN */
     if (read_console_success && InterlockedOr(&uv__restore_screen_state, 0)) {
       HANDLE active_screen_buffer;
-      active_screen_buffer = CreateFileA("conout$",
+      active_screen_buffer = CreateFileW(L"conout$",
                                          GENERIC_READ | GENERIC_WRITE,
                                          FILE_SHARE_READ | FILE_SHARE_WRITE,
                                          NULL,
@@ -606,9 +613,14 @@ static void uv_tty_queue_read_line(uv_loop_t* loop, uv_tty_t* handle) {
      QueueUserWorkItem*/
   uv__restore_screen_state = FALSE;
   uv__read_console_status = NOT_STARTED;
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   r = QueueUserWorkItem(uv_tty_line_read_thread,
                         (void*) req,
                         WT_EXECUTELONGFUNCTION);
+  #else
+  r = 0;
+  SetLastError(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  #endif
   if (!r) {
     SET_REQ_ERROR(req, GetLastError());
     uv_insert_pending_req(loop, (uv_req_t*)req);
@@ -717,7 +729,11 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
     if ((handle->flags & UV_HANDLE_READING)) {
       handle->flags &= ~UV_HANDLE_READING;
       handle->read_cb((uv_stream_t*)handle,
+                      #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
                       uv_translate_sys_error(GET_REQ_ERROR(req)),
+                      #else
+                      UV_UNKNOWN,
+                      #endif
                       &uv_null_buf_);
     }
     goto out;
@@ -976,7 +992,11 @@ void uv_process_tty_read_line_req(uv_loop_t* loop, uv_tty_t* handle,
       handle->flags &= ~UV_HANDLE_READING;
       DECREASE_ACTIVE_COUNT(loop, handle);
       handle->read_cb((uv_stream_t*) handle,
+                      #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
                       uv_translate_sys_error(GET_REQ_ERROR(req)),
+                      #else
+                      UV_UNKNOWN,
+                      #endif
                       &buf);
     }
   } else {
@@ -1104,7 +1124,7 @@ static int uv__cancel_read_console(uv_tty_t* handle) {
   }
 
   /* Save screen state before sending the VK_RETURN event */
-  active_screen_buffer = CreateFileA("conout$",
+  active_screen_buffer = CreateFileW(L"conout$",
                                      GENERIC_READ | GENERIC_WRITE,
                                      FILE_SHARE_READ | FILE_SHARE_WRITE,
                                      NULL,
@@ -1118,6 +1138,7 @@ static int uv__cancel_read_console(uv_tty_t* handle) {
     InterlockedOr(&uv__restore_screen_state, 1);
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   /* Write enter key event to force the console wait to return. */
   record.EventType = KEY_EVENT;
   record.Event.KeyEvent.bKeyDown = TRUE;
@@ -1129,6 +1150,7 @@ static int uv__cancel_read_console(uv_tty_t* handle) {
   record.Event.KeyEvent.dwControlKeyState = 0;
   if (!WriteConsoleInputW(handle->handle, &record, 1, &written))
     err = GetLastError();
+  #endif
 
   if (active_screen_buffer != INVALID_HANDLE_VALUE)
     CloseHandle(active_screen_buffer);
@@ -2232,8 +2254,12 @@ void uv_process_tty_write_req(uv_loop_t* loop, uv_tty_t* handle,
   UNREGISTER_HANDLE_REQ(loop, handle, req);
 
   if (req->cb) {
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     err = GET_REQ_ERROR(req);
     req->cb(req, uv_translate_sys_error(err));
+    #else
+    req->cb(req, UV_UNKNOWN);
+    #endif
   }
 
   handle->stream.conn.write_reqs_pending--;
@@ -2347,6 +2373,7 @@ static void uv__determine_vterm_state(HANDLE handle) {
 }
 
 static DWORD WINAPI uv__tty_console_resize_message_loop_thread(void* param) {
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   NTSTATUS status;
   ULONG_PTR conhost_pid;
   MSG msg;
@@ -2391,6 +2418,7 @@ static DWORD WINAPI uv__tty_console_resize_message_loop_thread(void* param) {
     TranslateMessage(&msg);
     DispatchMessage(&msg);
   }
+  #endif
   return 0;
 }
 

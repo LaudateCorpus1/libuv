@@ -110,7 +110,9 @@ INLINE static void uv_process_endgames(uv_loop_t* loop) {
         break;
 
       case UV_NAMED_PIPE:
+        #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
         uv_pipe_endgame(loop, (uv_pipe_t*) handle);
+        #endif
         break;
 
       case UV_TTY:

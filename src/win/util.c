@@ -361,6 +361,7 @@ uv_pid_t uv_os_getpid(void) {
 
 uv_pid_t uv_os_getppid(void) {
   int parent_pid = -1;
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   HANDLE handle;
   PROCESSENTRY32 pe;
   DWORD current_pid = GetCurrentProcessId();
@@ -378,6 +379,7 @@ uv_pid_t uv_os_getppid(void) {
   }
 
   CloseHandle(handle);
+  #endif
   return parent_pid;
 }
 
@@ -533,6 +535,7 @@ int uv_resident_set_memory(size_t* rss) {
 int uv_uptime(double* uptime) {
   BYTE stack_buffer[4096];
   BYTE* malloced_buffer = NULL;
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   BYTE* buffer = (BYTE*) stack_buffer;
   size_t buffer_size = sizeof(stack_buffer);
   DWORD data_size;
@@ -618,6 +621,7 @@ int uv_uptime(double* uptime) {
     counter_definition = (PERF_COUNTER_DEFINITION*)
         ((BYTE*) counter_definition + counter_definition->ByteLength);
   }
+  #endif
 
   /* If we get here, the uptime value was not found. */
   uv__free(malloced_buffer);
@@ -664,6 +668,7 @@ int uv_cpu_info(uv_cpu_info_t** cpu_infos_ptr, int* cpu_count_ptr) {
     goto error;
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   status = pNtQuerySystemInformation(SystemProcessorPerformanceInformation,
                                      sppi,
                                      sppi_size,
@@ -741,6 +746,9 @@ int uv_cpu_info(uv_cpu_info_t** cpu_infos_ptr, int* cpu_count_ptr) {
   *cpu_infos_ptr = cpu_infos;
 
   return 0;
+  #else
+  err = ERROR_NOT_SUPPORTED_IN_APPCONTAINER;
+  #endif
 
  error:
   if (cpu_infos != NULL) {
@@ -760,6 +768,7 @@ static int is_windows_version_or_greater(DWORD os_major,
                                          DWORD os_minor,
                                          WORD service_pack_major,
                                          WORD service_pack_minor) {
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   OSVERSIONINFOEX osvi;
   DWORDLONG condition_mask = 0;
   int op = VER_GREATER_EQUAL;
@@ -784,6 +793,9 @@ static int is_windows_version_or_greater(DWORD os_major,
     VER_MAJORVERSION | VER_MINORVERSION |
     VER_SERVICEPACKMAJOR | VER_SERVICEPACKMINOR,
     condition_mask);
+  #else
+  return 1;
+  #endif
 }
 
 
@@ -1130,10 +1142,15 @@ int uv_getrusage(uv_rusage_t *uv_rusage) {
     return uv_translate_sys_error(GetLastError());
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   ret = GetProcessIoCounters(GetCurrentProcess(), &ioCounters);
   if (ret == 0) {
     return uv_translate_sys_error(GetLastError());
   }
+  #else
+  ioCounters.WriteOperationCount = 0;
+  ioCounters.ReadOperationCount = 0;
+  #endif
 
   memset(uv_rusage, 0, sizeof(*uv_rusage));
 
@@ -1367,6 +1384,7 @@ int uv__convert_utf8_to_utf16(const char* utf8, int utf8len, WCHAR** utf16) {
 
 
 int uv__getpwuid_r(uv_passwd_t* pwd) {
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   HANDLE token;
   wchar_t username[UNLEN + 1];
   wchar_t *path;
@@ -1436,6 +1454,9 @@ int uv__getpwuid_r(uv_passwd_t* pwd) {
   pwd->gid = -1;
 
   return 0;
+  #else
+  return uv_translate_sys_error(ERROR_NOT_SUPPORTED_IN_APPCONTAINER);
+  #endif
 }
 
 
@@ -1802,6 +1823,9 @@ int uv_os_uname(uv_utsname_t* buffer) {
   os_info.dwOSVersionInfoSize = sizeof(os_info);
   os_info.szCSDVersion[0] = L'\0';
 
+  #if !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+  sRtlGetVersion pRtlGetVersion = NULL;
+  #endif
   /* Try calling RtlGetVersion(), and fall back to the deprecated GetVersionEx()
      if RtlGetVersion() is not available. */
   if (pRtlGetVersion) {
@@ -1817,6 +1841,7 @@ int uv_os_uname(uv_utsname_t* buffer) {
     }
   }
 
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   /* Populate the version field. */
   version_size = 0;
   r = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
@@ -1851,6 +1876,10 @@ int uv_os_uname(uv_utsname_t* buffer) {
       }
     }
   }
+  #else
+  version_size = 0;
+  r = ERROR_NOT_SUPPORTED_IN_APPCONTAINER;
+  #endif
 
   /* Append service pack information to the version if present. */
   if (os_info.szCSDVersion[0] != L'\0') {

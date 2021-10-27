@@ -238,6 +238,7 @@ int uv_fs_event_start(uv_fs_event_t* handle,
 
     /* Convert to short path. */
     short_path_buffer = NULL;
+	#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     short_path_buffer_len = GetShortPathNameW(pathw, NULL, 0);
     if (short_path_buffer_len == 0) {
       goto short_path_done;
@@ -252,6 +253,7 @@ int uv_fs_event_start(uv_fs_event_t* handle,
       uv__free(short_path_buffer);
       short_path_buffer = NULL;
     }
+	#endif
 short_path_done:
     short_path = short_path_buffer;
 
@@ -570,8 +572,12 @@ void uv_process_fs_event_req(uv_loop_t* loop, uv_req_t* req,
       handle->cb(handle, NULL, UV_CHANGE, 0);
     }
   } else {
+    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
     err = GET_REQ_ERROR(req);
     handle->cb(handle, NULL, 0, uv_translate_sys_error(err));
+    #else
+    handle->cb(handle, NULL, 0, UV_UNKNOWN);
+    #endif
   }
 
   if (!(handle->flags & UV_HANDLE_CLOSING)) {

@@ -39,8 +39,11 @@ int uv_dlopen(const char* filename, uv_lib_t* lib) {
                            ARRAY_SIZE(filename_w))) {
     return uv__dlerror(lib, filename, GetLastError());
   }
-
+  #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP|WINAPI_PARTITION_SYSTEM|WINAPI_PARTITION_GAMES)
+  lib->handle = LoadPackagedLibrary(filename_w, 0);
+  #else
   lib->handle = LoadLibraryExW(filename_w, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+  #endif
   if (lib->handle == NULL) {
     return uv__dlerror(lib, filename, GetLastError());
   }
